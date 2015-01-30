@@ -36,8 +36,9 @@ for dirpath, dirnames, filenames in os.walk(DOTFILES_DIR):
         if not os.path.exists(dotfile_path):
             print("Creating \"{}\"...".format(dotfile_path))
             os.makedirs(dotfile_path)
+
         #Otherwise see if the file already exists
-        elif os.path.lexists(dotfile):
+        if os.path.lexists(dotfile):
             if os.path.realpath(ourfile) == os.path.realpath(dotfile):
                 print("Skipping {}, already symlinked...".format(dotfile)) 
             else:
