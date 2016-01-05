@@ -1,58 +1,99 @@
 #!/usr/bin/env python
-# Spoon is life
 import os
 import os.path
 import subprocess
+import argparse
+import shutil
+import sys
 
 ROOT_DIR=os.path.dirname(__file__)
 DOTFILES_DIR=os.path.join(ROOT_DIR, "dotfiles")
 HOME = os.path.expanduser('~')
 
-def prompt(text, default = None):
-    import sys
-    sys.stdout.write(text)
+# Like input() but works in python 2 and 3
+def readline(prompt=''):
+    sys.stdout.write(prompt)
     sys.stdout.flush()
-    return sys.stdin.readline().rstrip('\n') or default
+    return sys.stdin.readline().rstrip("\
+")
 
-def launch_diff(filea, fileb):
-    subprocess.call(['vimdiff', ourfile, dotfile])
+def get_dotfiles(dot_dir=DOTFILES_DIR):
+    for dirname, dirs, files in os.walk(dot_dir):
+        for fname in files:
+            yield os.path.relpath(os.path.join(dirname, fname), dot_dir)
 
-def choice(p, choices):
-    while True:
-        choice = prompt(p);
-        if choice not in choices:
-            print("Try again.")
+def copyfile(source, dest):
+    dest_dir = os.path.dirname(dest)
+
+    if not os.path.exists(dest_dir):
+        os.makedirs(dest_dir)
+
+    shutil.copy(source, dest)
+
+def view_diff(source, dest):
+    subprocess.call([
+        "vimdiff",
+        source,
+        dest
+    ])
+
+def link(args):
+    for dotfile in get_dotfiles():
+        dest_file = os.path.join(args.home_dir, dotfile)
+        source_file = os.path.join(args.dot_dir, dotfile)
+
+        if args.force:
+            copyfile(source_file, dest_file)
             continue
-        if choices[choice](): break
 
-for dirpath, dirnames, filenames in os.walk(DOTFILES_DIR):
-    for filename in filenames:
-        ourfile = os.path.join(dirpath, filename)
-        # this could probably be cleaned up...
-        dotfile = os.path.join(HOME, os.path.relpath(ourfile, DOTFILES_DIR))
-        dotfile_path = os.path.dirname(dotfile)
+        if not os.path.exists(dest_file):
+            copyfile(source_file, dest_file)
+            continue
 
-        #Check to see if we need to create the directory for the file
-        if not os.path.exists(dotfile_path):
-            print("Creating \"{}\"...".format(dotfile_path))
-            os.makedirs(dotfile_path)
 
-        #Otherwise see if the file already exists
-        if os.path.lexists(dotfile):
-            if os.path.realpath(ourfile) == os.path.realpath(dotfile):
-                print("Skipping {}, already symlinked...".format(dotfile)) 
-            else:
-                print("Uh oh! {} already exists! What would you like to do?".format(dotfile))
-                # for right now, simply replacing the file isn't an option
-                # Because I want it to be difficult for me to remove a important file
-                # And I could probably merge over the relevant lines in vimdiff anyway
-                choice("[I]gnore it, View the [D]iff: ", {
-                    'I': lambda: True,
-                    'D': lambda: launch_diff(ourfile, dotfile)
-                })
-        # File doesn't exist, symlink it!
-        else:
-            print("symlinking \"{}\" to \"{}\"".format(os.path.abspath(ourfile), dotfile))
-            os.symlink(os.path.abspath(ourfile), dotfile)
+        if os.path.getmtime(dest_file) > os.path.getmtime(source_file):
+            print("WARNING! {} is newer than {}! What do you want to do?".format(dest_file, source_file))
+            while True:
 
-print("Finished!")
+                choice = readline("View (D)iff, (C)opy over, (I)gnore: ")
+
+                if choice == "D":
+                    view_diff(dest_file, source_file)
+                elif choice == "C":
+                    copyfile(source_file, dest_file)
+                    break
+                elif choice == "I":
+                    break
+
+def update(args):
+    dotfiles = get_dotfiles()
+
+    for dotfile in dotfiles:
+        destination_file = os.path.join(args.dot_dir, dotfile)
+        source_file = os.path.join(args.home_dir, dotfile)
+        
+        if not os.path.exists(source_file):
+            print("{} doesn't exist! Skipping...".format(source_file))
+            continue
+
+        # if the dotfile in ~ is newer than ours, copy the file over our copy
+        if os.path.getmtime(source_file) > os.path.getmtime(destination_file):
+            print("{} is newer than {}!".format(source_file, destination_file))
+            copyfile(source_file, destination_file)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Link dotfiles")
+    parser.add_argument('--dot-dir', '-d', default=DOTFILES_DIR, help="Where to look for dot files")
+    parser.add_argument('--home-dir', '-H', default=HOME, help="Where to put the dot files")
+    subparsers = parser.add_subparsers()
+
+    link_parser = subparsers.add_parser('link')
+    link_parser.add_argument('--force', '-F', action="store_true", help="Don't bother with conflicts")
+    link_parser.set_defaults(func=link)
+
+    update_parser = subparsers.add_parser('update')
+    update_parser.set_defaults(func=update)
+
+    args = parser.parse_args()
+
+    args.func(args)
